@@ -1,5 +1,7 @@
-Copy/
-MachineLearningCVE/
-.ipynb_checkpoints/
-__pycache__/
+/__pycache__/
+/.ipynb_checkpoints/
+/Copy/
+/MachineLearningCVE/
 cleaned_dataset.csv
+real_time_attack.py
+trained_model.keras

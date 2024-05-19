@@ -3,292 +3,230 @@
 import numpy as np
 import pandas as pd
 import os
-import seaborn as sns
-import matplotlib.pyplot as plt
+import tensorflow as tf
 
 path = "MachineLearningCVE/"
 csv_files = []
-for root, directories, files in os.walk(path):
-    for file in files:
-        csv_files.append(os.path.join(root, file))
+dataset = []
 
-[print(f) for f in csv_files]
+# Getting Training Data As CSV Files
+def get_training_data():
+    for root, directories, files in os.walk(path):
+        for file in files:
+            csv_files.append(os.path.join(root, file))
 
-dataset = [pd.read_csv(f) for f in csv_files]
+    return [pd.read_csv(f) for f in csv_files]
 
-# Shape of each csv file
-for d in dataset:
-    print(d.shape)
+# Concat Valid Data(Valid Data Means Either the data is a DataFrame or a Series Object)
+def concat_valid_data():
+    global dataset
+    # Assuming dataset is a list containing DataFrames or Series objects
+    valid_data = [d for d in dataset if isinstance(d, (pd.DataFrame, pd.Series))]
 
-dataset[0].columns
+    # Concatenate the valid DataFrames or Series objects
+    if valid_data:
+        dataset = pd.concat(valid_data).drop_duplicates(keep=False)
+        dataset.reset_index(drop=True, inplace=True)
+        print("Combined dataset created successfully.")
+    else:
+        print("No valid data found in the dataset list.")
 
-# Check whether all the columns in every csv file is the same
+# Clean and Preprocess the Dataset
+def clean_dataset():
+    global dataset
+    # Removing whitespaces in column names.
+    col_names = [col.replace(' ', '') for col in dataset.columns]
+    dataset.columns = col_names
 
-for i in range(len(dataset)):
-    if i != len(dataset) - 1:
-        same_columns = dataset[i].columns == dataset[i+1].columns
-        
-        if False in same_columns:
-            print(i)
-            break
+    # Removing the weird characters and making the labels a valid string suitable for classification
+    import re # Regular Expression
 
-same_columns
+    label_names = [re.sub("[^a-zA-Z ]+", "", l) for l in dataset['Label'].unique()]
+    label_names = [re.sub("[\s\s]", '_', l) for l in label_names]
+    label_names = [l.replace("__", "_") for l in label_names]
 
-# Assuming dataset is a list containing DataFrames or Series objects
-valid_data = [d for d in dataset if isinstance(d, (pd.DataFrame, pd.Series))]
+    prev_labels = dataset['Label'].unique()
 
-# Concatenate the valid DataFrames or Series objects
-if valid_data:
-    dataset = pd.concat(valid_data).drop_duplicates(keep=False)
-    dataset.reset_index(drop=True, inplace=True)
-    print("Combined dataset created successfully.")
-else:
-    print("No valid data found in the dataset list.")
+    # Replacing Previous labels with the cleaned labels
+    for i in range(len(label_names)):
+        dataset['Label'] = dataset['Label'].replace({prev_labels[i]: label_names[i]})
 
-# We can observe that all the datasets are merged into one
-dataset.shape
+    # Since only a small number of rows contain NULL value, We will remove them
+    dataset.dropna(inplace=True)
 
-dataset.info()
+    # Removing label column for now because it has string values
+    label = dataset['Label']
+    dataset = dataset.loc[:, dataset.columns != 'Label'].astype('float64')
 
-dataset.describe()
+    # Replacing infinite values with NaN values.
+    dataset = dataset.replace([np.inf, -np.inf], np.nan)
 
-dataset.columns
+    # Adding the Labels column back again
+    dataset = dataset.merge(label, how='outer', left_index=True, right_index=True)
 
-dataset[' Label'].unique()
+    # Removing new NaN values.
+    dataset.dropna(inplace=True)
 
-len(dataset[' Label'].unique())
+    return label_names
 
-dataset.head()
+# Scaling The Data Using RobustScaler
+def scale_dataset():
+    from sklearn.preprocessing import RobustScaler
 
-data = dataset[' Label'].where(dataset[' Label'] != "BENIGN")
+    # Splitting dataset into features and labels.
+    labels = dataset['Label']
+    features = dataset.loc[:, dataset.columns != 'Label'].astype('float64')
 
-plt.figure(figsize=(14,6))
-# Plotting non-benign data since there are a lot of benign samples
-chart = sns.countplot(data, palette="Set1")
-plt.xticks(horizontalalignment="right")
+    scaler = RobustScaler()
+    scaler.fit(features)
 
-# Removing whitespaces in column names.
+    features = scaler.transform(features)
+    return labels, features
 
-col_names = [col.replace(' ', '') for col in dataset.columns]
-dataset.columns = col_names
-dataset.columns
+# Encoding the label names as Integers
+def encode_label_names(labels):
+    from sklearn.preprocessing import LabelEncoder
 
-# Here we can see that 'Label' column contains some weird characters. 
+    LE = LabelEncoder()
 
-dataset["Label"].unique()
+    LE.fit(labels)
+    labels = LE.transform(labels)
 
-# Removing the weird characters
-
-label_names = dataset['Label'].unique()
-
-
-import re
-
-label_names = [re.sub("[^a-zA-Z ]+", "", l) for l in label_names]
-label_names = [re.sub("[\s\s]", '_', l) for l in label_names]
-label_names = [l.replace("__", "_") for l in label_names]
-
-label_names, len(label_names)
-
-prev_labels = dataset['Label'].unique()
-prev_labels
-
-# Replacing Previous labels with the cleaned labels
-for i in range(len(label_names)):
-    dataset['Label'] = dataset['Label'].replace({prev_labels[i] : label_names[i]})
+# Split the data into training and testing sets
+def split_data(features, labels):
+    from sklearn.model_selection import train_test_split
     
-dataset['Label'].unique()
+    # For this we will use sklearn function train_test_split().
+    # 80-20 split
+    return train_test_split(features, labels, test_size=0.2)
 
-dataset.isnull().values.any()
+# Create the model
+def build_model():
 
-# Check which column has null value and 
+    model = tf.keras.models.Sequential([
+        tf.keras.layers.Flatten(input_shape=(78,)),
+        tf.keras.layers.Dense(67, activation='relu'),
+        tf.keras.layers.Dropout(0.2),
+        tf.keras.layers.Dense(15, activation='softmax')
+    ])
 
-[col for col in dataset if dataset[col].isnull().values.any()]
+    return model
 
-# Check how many rows have it
-dataset['FlowBytes/s'].isnull().sum()
+# Compile the model
+def compile_model(model):
+        # For learning rate optimization we used Adam optimizer.
+    # Loss function used is sparse categorical crossentropy, which is standard for multiclass 
+    # classification problems.
 
-# Since only a small number of rows contain NULL value, We will remove them
-dataset.dropna(inplace=True)
-
-# Observe that null valued rows are successfully removed
-dataset.isnull().values.any()
-
-# Removing label column for now because it has string values
-
-label = dataset['Label']
-dataset = dataset.loc[:, dataset.columns != 'Label'].astype('float64')
-
-# Checking if all values are finite.
-
-np.all(np.isfinite(dataset))
-
-# Checking what column/s contain non-finite values.
-
-nonfinite = [col for col in dataset if not np.all(np.isfinite(dataset[col]))]
-
-nonfinite
-
-# Checking how many non-finite values each column contains.
-
-finite = np.isfinite(dataset['FlowPackets/s']).sum()
-
-# Infinite = Total - Finite 
-dataset.shape[0] - finite
-
-# Since there is a small number of non-finite values we can safely remove them from the dataset without spoiling the dataset
-
-# Replacing infinite values with NaN values.
-dataset = dataset.replace([np.inf, -np.inf], np.nan)
-
-# We can see that now we have Nan values again.
-
-np.any(np.isnan(dataset))
-
-# Adding the Labels column back again
-
-dataset = dataset.merge(label, how='outer', left_index=True, right_index=True)
-
-# Removing new NaN values.
-
-dataset.dropna(inplace=True)
-
-dataset.head()
-
-from sklearn.preprocessing import RobustScaler
-
-# Splitting dataset into features and labels.
-
-labels = dataset['Label']
-features = dataset.loc[:, dataset.columns != 'Label'].astype('float64')
-
-features.head()
-
-scaler = RobustScaler()
-scaler.fit(features)
-
-features = scaler.transform(features)
-
-# Checking if scaling has been succesful.
-features[0]
-
-from sklearn.preprocessing import LabelEncoder
-
-LE = LabelEncoder()
-
-LE.fit(labels)
-labels = LE.transform(labels)
-
-# labels have been replaced with integers.
-
-np.unique(labels)
-
-# Checking that encoding reversal works.
-
-# d = LE.inverse_transform(labels)
-# d = pd.Series(d)
-# d.unique()
-
-from sklearn.model_selection import train_test_split
-
-# For this we will use sklearn function train_test_split().
-
-# 80-20 split
-features_train, features_test, labels_train, labels_test = train_test_split(features, labels, test_size = 0.2)
-
-features_train.shape, features_test.shape, labels_train.shape, labels_test.shape
-
-import tensorflow as tf
-
-model = tf.keras.models.Sequential([
+    model.compile(optimizer='adam',
+                  loss='sparse_categorical_crossentropy',
+                  metrics=['accuracy'])
     
-    tf.keras.layers.Flatten(input_shape=(78,)),
-    tf.keras.layers.Dense(67, activation='relu'),
-    tf.keras.layers.Dropout(0.2),
-    tf.keras.layers.Dense(15, activation='softmax')
-])
+    return model
 
-# For learning rate optimization we used Adam optimizer.
-# Loss function used is sparse categorical crossentropy, which is standard for multiclass classification problems.
+# Fit the model (Train it, requires a long time)
+def fit_model(model, features_train, labels_train):
+    model.fit(features_train, labels_train, epochs=5)
+    return model
 
-model.compile(optimizer='adam',
-             loss='sparse_categorical_crossentropy',
-             metrics=['accuracy'])
+def evaluate_model(model, features_test, labels_test):
+    # Evaluating model accuracy.
+    model.evaluate(features_test, labels_test, verbose=2)
 
-# log_dir = os.path.join(
-#     "train_logs",
-#     datetime.datetime.now().strftime("%Y%m%d-%H%M%S"),
-# )
+# Predict The Attacks
+def predict_attack(model, label_names, features):
+    # Define a dictionary mapping attack labels to their severity levels
+    severity_mapping = {
+        'BENIGN': 'Low', 
+        'DDoS': 'High', 
+        'PortScan': 'Medium', 
+        'Bot': 'High', 
+        'Infiltration': 'High',
+        'Web_Attack_Brute_Force': 'Medium', 
+        'Web_Attack_XSS': 'Medium', 
+        'Web_Attack_Sql_Injection': 'High',
+        'FTPPatator': 'Medium', 
+        'SSHPatator': 'Medium', 
+        'DoS_slowloris': 'High', 
+        'DoS_Slowhttptest': 'High',
+        'DoS_Hulk': 'High', 
+        'DoS_GoldenEye': 'High', 
+        'Heartbleed': 'High'
+    }
 
-# # TF callback that sets up TensorBoard with training logs.
-# tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
+    predictions = model.predict(features)
+    predicted_indices = predictions.argmax(axis=1)
+    predicted_labels = [label_names[i] for i in predicted_indices]
+    severity_levels = [severity_mapping[label] for label in predicted_labels]
 
-# # TF callback that stops training when best value of validationi loss function is reached. It also
-# # restores weights from the best training iteration.
-# eary_stop_callback = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=10, restore_best_weights=True)
+    predicted_attacks_with_severity = zip(predicted_labels, severity_levels)
+    for attack, severity in predicted_attacks_with_severity:
+        print(f"Predicted Attack: {attack}, Severity: {severity}")
 
-features_train.shape
+# Save Dataset and Model
+def save_dataset_and_model(dataset, model):
+    dataset.to_csv("cleaned_dataset.csv", index=False)
 
-print(features_test[:5])
+    model.save('trained_model.keras')
 
-model.fit(features_train,
-          labels_train,
-          epochs=5,
-         )
+# Load Dataset and Model
+def load_dataset_and_model():
+    dataset = pd.read_csv('cleaned_dataset.csv')
 
-# Evaluating model accuracy.
-model.evaluate(features_test, labels_test, verbose=2)
+    model = tf.keras.models.load_model('trained_model.keras')
 
-predictions = model.predict(features_test)
+    return dataset, model
 
-predicted_indices = predictions.argmax(axis=1)
-predicted_labels = [label_names[i] for i in predicted_indices]
-predicted_labels
+def get_real_time_data():
 
-# Define a dictionary mapping attack labels to their severity levels
-severity_mapping = {
-    'BENIGN': 'Low',
-    'DDoS': 'High',
-    'PortScan': 'Medium',
-    'Bot': 'High',
-    'Infiltration': 'High',
-    'Web_Attack_Brute_Force': 'Medium',
-    'Web_Attack_XSS': 'Medium',
-    'Web_Attack_Sql_Injection': 'High',
-    'FTPPatator': 'Medium',
-    'SSHPatator': 'Medium',
-    'DoS_slowloris': 'High',
-    'DoS_Slowhttptest': 'High',
-    'DoS_Hulk': 'High',
-    'DoS_GoldenEye': 'High',
-    'Heartbleed': 'High'
-}
+    from secret import RealTimeData
 
-# Get the predicted labels for the attacks
-predicted_labels = [label_names[np.argmax(pred)] for i, pred in enumerate(predictions[:1000]) if label_names[np.argmax(pred)] != 'BENIGN']
+    real_time_data_instance = RealTimeData()
 
-# Create a list to store the severity levels for each predicted label
-severity_levels = [severity_mapping[label] for label in predicted_labels]
+    real_time_data = real_time_data_instance.get_cleaned_real_time_data()
 
-# Combine predicted labels and severity levels
-predicted_attacks_with_severity = zip(predicted_labels, severity_levels)
+    real_time_df = pd.DataFrame([real_time_data])
 
-# Display the predicted attacks with their severity levels
-for attack, severity in predicted_attacks_with_severity:
-    print(f"Predicted Attack: {attack}, Severity: {severity}")
+    labels = real_time_df['Label']
 
-dataset.to_csv("cleaned_dataset.csv", index=False)
+    features = real_time_df.loc[:, real_time_df.columns != 'Label'].astype('float64')
 
-model.save('trained_model.keras')
+    from sklearn.preprocessing import LabelEncoder
 
-dataset = pd.read_csv('cleaned_dataset.csv')
+    LE = LabelEncoder()
 
-model = tf.keras.models.load_model('trained_model.keras')
+    LE.fit(labels)
+    labels = LE.transform(labels)
 
-from secret import RealTimeData
+    return labels, features
 
-real_time_data_instance = RealTimeData()
+if __name__ == "__main__":
+    # dataset = get_training_data()
 
-real_time_data = real_time_data_instance.get_cleaned_real_time_data()
+    # concat_valid_data()
 
-real_time_data
+    # label_names = clean_dataset()
+
+    # labels, features = scale_dataset()
+
+    # labels = encode_label_names(labels)
+
+    # features_train, features_test, labels_train, labels_test = split_data(features, labels)
+
+    # model = build_model()
+
+    # model = compile_model(model)
+
+    # model = fit_model(model, features_train, labels_train)
+
+    # evaluate_model(model, features_test, labels_test)
+
+    # save_dataset_and_model(dataset, model)
+
+    dataset, model = load_dataset_and_model()
+
+    label_names = dataset['Label'].unique()
+
+    labels, features = get_real_time_data()
+    
+    predict_attack(model, label_names, features)

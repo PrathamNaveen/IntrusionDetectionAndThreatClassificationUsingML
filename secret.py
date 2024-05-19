@@ -7,5 +7,5 @@ class RealTimeData:
 
         return df.iloc[177096]
     
-    
-    
+if __name__ == "__main__":
+    print(RealTimeData().get_cleaned_real_time_data())
