@@ -114,7 +114,7 @@ def build_model():
 
 # Compile the model
 def compile_model(model):
-        # For learning rate optimization we used Adam optimizer.
+    # For learning rate optimization we used Adam optimizer.
     # Loss function used is sparse categorical crossentropy, which is standard for multiclass 
     # classification problems.
 
@@ -179,7 +179,7 @@ def load_dataset_and_model():
 
 def get_real_time_data():
 
-    from secret import RealTimeData
+    from snortl import RealTimeData
 
     real_time_data_instance = RealTimeData()
 
@@ -222,6 +222,8 @@ if __name__ == "__main__":
     # evaluate_model(model, features_test, labels_test)
 
     # save_dataset_and_model(dataset, model)
+
+    ##
 
     dataset, model = load_dataset_and_model()
 
